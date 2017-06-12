@@ -11,7 +11,7 @@
 
 上述定义并非来源于作者凭空的想象，在各大 JavaScript 社区火热的项目对自身的简介中，即可一窥端倪：
 
-* jQuery: [jQuery is a fast, small, and feature-rich JavaScript **library**.](https://jquery.com/)
+* jQuery: [jQuery is a fast, small, and feature-rich JavaScript **library**](https://jquery.com/)
 * AngularJS: [AngularJS — Superheroic JavaScript MVW **Framework**](https://angularjs.org/)
 * React: [A JavaScript **library** for building user interfaces](https://facebook.github.io/react/)
 * Vue.js: [The Progressive
