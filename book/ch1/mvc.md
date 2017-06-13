@@ -53,7 +53,9 @@ $('.xx-btn').click(() => {
 在【支持 MVC 三个模块】与【支持通过继承使用】的两个目标确定后，即可以框架使用者的身份，给出调用框架的基础示例代码：
 
 ``` js
-// Todo 项目的入口 index.js 文件
+// app/index.js
+// Todo App 的业务代码入口
+// 该示例为实际业务代码，并非框架代码
 
 // 依次导入 MVC 的三个模块
 import { TodoModel } from './model'
@@ -193,3 +195,177 @@ export function TodoView ({ todos }) {
 ```
 
 到此为止，我们已经勾画出业务代码的全貌了。接下来需要的就是实现 NanoMVC 这一框架，从而让这些代码能够在框架的支持下正常运行。
+
+## 编码实现
+在给定了设计目标以及示例功能后，框架的开发并没有想象中复杂。根据上文中编写示例代码时的梳理，我们的 NanoMVC 框架中需实现的功能包括：
+
+* Model 基类中实现对模型数据的发布 - 订阅设计模式。
+* Controller 基类中实现：
+    * 与 Model / View 实例的绑定。
+    * 对点击事件、DOM 选择等底层 API 的封装。
+    * 用于渲染数据的 Render 方法。
+
+
+### Model 模块
+由于 Model 中功能最为简单，且其为 Controller 实例的依赖，故而我们首先实现其中的发布 - 订阅模式：
+
+``` js
+// framework/index.js
+
+// 对外暴露的 Model 基类
+export class Model {
+  // 在构造器中实例化数据与订阅者
+  constructor (data) {
+    this.data = data
+    this.subscribers = []
+  }
+  // 由 TodoModel 实例调用的发布方法
+  // 在 TodoModel 中的 setter 更新时，将新数据传入该方法
+  // 由该方法将新数据推送到每个订阅者提供的回调中
+  // 在 Todo 项目中，订阅者为 TodoController 的 render 方法
+  publish (data) {
+    this.subscribers.forEach(callback => callback(data))
+  }
+}
+```
+
+在示例中可以发现，所谓的发布 - 订阅模式，其思路和实现均非常简单：
+
+1. 区分出【发布者】和【订阅者】的概念。本例中 Model 为发布者，Controller 为订阅者。
+2. 在发布者中维护【我有哪些订阅者】信息的数组，每个元素为一个订阅者提供的回调。
+3. 发布者数据更新时，依次触发所有订阅者的回调。
+
+不过，Model 中的代码仅实现了【初始化发布者】与【触发所有订阅】的功能，并不是一个完整的发布 - 订阅模式。在完整的模式实现中，其余代码包括：
+
+1. 【订阅者订阅发布者】机制的实现，其代码位置为 `controller.js` 中的最后一行 ` this.model.subscribers.push(this.render)`，在此将 render 方法作为订阅者回调，提供给了发布者。
+2. 【数据更新时，触发订阅回调】机制的实现，其代码位置为 `model.js` 中 `set todos (todos)` 内的一行 `this.publish(todos)`。在此，通过 ES6 中 Class 语法的 setter 机制，在模型数据更新时，调用 Model 基类提供的 publish 方法，触发订阅。
+3. 【订阅者提供的订阅方法】的实现，在此即为 TodoController 中提供的 `this.render` 方法。该方法并未在 TodoController 的业务代码中实现，而是在接下来的框架 Controller 基类中实现的。 
+
+### Controller 模块
+上文中已经明确，框架提供的 Controller 基类需要实现的功能为：
+
+* 与 Model / View 实例的绑定。
+* 对点击事件、DOM 选择等底层 API 的封装。
+* 用于渲染数据的 Render 方法。
+
+以下是相应的实现，去除注释后仅在 20 行的数量级：
+
+``` js
+// framework/index.js
+
+// 对外暴露的 Controller 基类
+export class Controller {
+  constructor (conf) {
+    // 根据子类提供的实例化参数，定义 Controller 基础配置
+    // 包括 DOM 容器、Model / View 实例及 onClick 事件等
+    this.el = document.querySelector(conf.el)
+    this.model = conf.model
+    this.view = conf.view
+
+    // 常见于 React 开发中的 bind
+    // 解决方法在 extend 出的实例中执行时的 this 指向问题
+    this.render = this.render.bind(this)
+    
+    // 根据 TodoController 中提供的 onClick 配置规则执行业务逻辑
+    // 例如 TodoController 若在 onClick 属性中提供了名为 .btn-add 的函数
+    // 则在 Controller 对应 DOM 中点击事件触发时
+    // 事件 path 的根元素若带有匹配 btn-add 的 className
+    // 即执行 TodoController 提供的 .btn-add 函数
+    this.el.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const rules = Object.keys(conf.onClick || {})
+      rules.forEach((rule) => {
+        // 匹配事件根元素，并据此执行业务 Controller 实例提供的业务逻辑
+        if (e.path[0].matches(rule)) conf.onClick[rule].call(this, e)
+      })
+    })
+  }
+  // 供业务 Controller 实例使用的 API 方法
+  // 从而避免在业务代码中直接操作 DOM
+  // 首先是事件对象，返回事件根元素的特定属性
+  getTargetAttr (e, attr) {
+    return e.path[0].getAttribute(attr)
+  }
+  // 同样供业务 Controller 实例使用的 API 方法
+  // 提供在 Controller 对应 DOM 内查找元素的 API
+  getChild (selector) {
+    return this.el.querySelector(selector)
+  }
+  // 全量重置 DOM 的 naive render 实现
+  render () {
+    // 由于 view 是纯函数，故而直接对其传入 Model 数据
+    // 将输出的 HTML 模板作为 Controller DOM 内的新状态
+    this.el.innerHTML = this.view(this.model)
+  }
+}
+```
+
+基于这个 Controller 基类的实现，可以完善出前文中 TodoController 剩余的若干业务代码如下：
+
+``` js
+// controller.js
+
+// ...
+      onClick: {
+        '.btn-add' () {
+          // 新增 Todo 时操作
+          // 由于简单的 setter 监测不到 push 方法的改动
+          // 故而对 Todos 数据全量赋值
+          this.model.todos = this.model.todos.concat([{
+            id: new Date().getTime().toString(),
+            // 使用 getter 获取【添加 Todo】输入框中的数据
+            text: this.addInputText
+          }])
+        },
+        // 根据 id 过滤掉待删除元素
+        '.btn-delete' (e) {
+          const id = this.getTargetAttr(e, 'data-id')
+          this.model.todos = this.model.todos.filter(
+            todo => todo.id !== id
+          )
+        },
+        // 根据 id 查找出待更新 Todo 文本并更新
+        '.btn-update' (e) {
+          const id = this.getTargetAttr(e, 'data-id')
+          const text = this.getUpdateText(id)
+          // 通过 map 全量对新 Todos 列表赋值
+          this.model.todos = this.model.todos.map(
+            todo => ({
+              id: todo.id,
+              text: todo.id === id ? text : todo.text
+            })
+          )
+        }
+      }
+// ...
+```
+
+新增的 TodoController 实例方法如下：
+
+``` js
+  // 调用框架 API，根据当前编辑 Todo 的 ID，获取其文本
+  getUpdateText (id) {
+    return super.getChild(`input[data-id="${id}"]`).value
+  }
+  // 获取【添加 Todo】输入框中的数据
+  get addInputText () {
+    return super.getChild('.input-add').value
+  }
+```
+
+最后实现的业务代码中，只需在名为形如 `.btn-add` 的函数中调用框架封装好的方法，就能实现对 DOM 的查找及对数据的增查改删，不再需要显式地查找与修改 DOM 了。
+
+## 总结
+在实现 MVC 模式框架的过程中，框架的【模块拆分】与【功能封装】特性均得到了体现，而 ES6 所提供的 class 高级特性则大大简化这些特性的实现复杂度。例如，如果没有 setter 语法糖，那么实现发布 - 订阅模式中最关键的【在数据更新时执行代码】特性时，要么需要额外封装出框架的 get 和 set API，要么需要采用 `Object.defineProperty` 这样较为 Hack 的手段。
+
+有趣的一点是，从实现框架过程中提供的示例代码来看，框架代码虽少，但其注释量显著多于业务代码。在许多成熟的开源项目中，注释所占比重也相当大。造成这种情况的原因，除了框架层开发者的编码习惯较好外，还有一个潜在的原因：框架开发中，提供的代码多是【供用户调用】的 API 代码，在没有用户提供代码的情况下，整个框架的执行流程可能是无法走通的（例如整个发布 - 订阅模式的实现代码，就分散在了各个模块中）。这时，对于许多**执行流程不连续且缺乏调用者信息的代码片段**，就需要提供传统的参数类型信息外，更丰富的【代码调用场景、作用场景、Hack 理由】等信息，来保证框架代码的可维护性。从这个角度上来说，框架级的开发也有助于培养开发者的编码习惯。
+
+当然，这个框架毕竟只是一个简单 Demo，与真实世界中的框架相比，还存在许多问题：
+
+* 不支持父子组件嵌套的机制。
+* 基于 innerHTML 的渲染性能低下。
+* Controller 与 View 是一对一的关系，且直接将 Model 传入 View 函数来获取模板，不够灵活。
+* 不支持为特定元素单独设置事件监听器，只能拦截所有事件到 Controller DOM 顶层处理。
+* 只支持通过对 Model 的全量赋值来触发发布 - 订阅机制，使得 TodoController 中的增查改删业务代码虽然剥离的 DOM，但仍然较为臃肿。
+
+这些存在的问题，正是后续章节中所介绍的新类库 / 框架所要解决的。NanoMVC 正是引出对更高级的框架机制介绍的一个印子。
