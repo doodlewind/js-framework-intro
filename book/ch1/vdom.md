@@ -136,7 +136,57 @@ function getValueById (node, id) {
 这里的 `pragma` 字段意味着，我们会将 JSX 转译的结果用 `dom` 函数来表示。关于转译的介绍，及虚拟 DOM 的具体表达，请参见下文。
 
 ## 表达虚拟 DOM
-TODO
+在背景介绍部分已经提及，我们希望借助 React 的 JSX 语法，来表达虚拟 DOM。这样的虚拟 DOM 代码形如：
+
+``` js
+const vdom = (
+  <div>
+    <span>123</span>
+    <span>456</span>
+  </div>
+)
+```
+
+熟悉 React 的开发者应该知道，一对 JSX 格式的 HTML 标签，会被转译为一个对 `React.createElement` 函数的调用。而在背景介绍部分中，通过配置 babel，已将该转译得到的函数名改写为 `dom`。也就是说，经过转换后，上例中的 JSX 代码将被转换为这样的形式：
+
+``` js
+// 使用 dom 函数替代默认的 React.createElement
+const vdom = dom(
+  'div',
+  null,
+  dom(
+    'span',
+    null,
+    '123'
+  ),
+  dom(
+    'span',
+    null,
+    '456'
+  )
+)
+```
+
+根据 JSX 转译得到的 `dom` 调用方式，可以发现该函数的签名格式中，第一个参数为标签名，第二个参数为标签 props 属性，后续的多个参数则为标签的 children 子节点。而这个函数的输出，则应当是一个表示虚拟 DOM 的纯 JSON 结构。这样，在已知函数输入和输出的条件下，我们就能够实现这个函数了：
+
+``` js
+// 此处的对象展开运算符，表示将剩余传入参数展开至 children 数组中
+function dom (type, props, ...children) {
+  // 等价于 { type: type, props: props, children: children }
+  return { type, props, children }
+}
+```
+
+这时，不妨将 `dom` 的声明复制入 Node 的 REPL 环境，然后复制入上例中使用 `dom` 函数表达的 `vdom` 常量声明，这样就能在 Node 中观察到我们声明的虚拟 DOM 了：
+
+``` text
+> vdom
+{ type: 'div',
+  props: null,
+  children: 
+   [ { type: 'span', props: null, children: [Object] },
+     { type: 'span', props: null, children: [Object] } ] }
+```
 
 ## 绑定真实 DOM
 TODO
